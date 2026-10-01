@@ -1,0 +1,71 @@
+name: Simulación
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  simular:
+    name: Ejecutar modelo y generar figuras
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Localizar la carpeta del proyecto
+        id: loc
+        run: |
+          ARCHIVO=$(find . -name requirements.txt -not -path './.git/*' | head -1)
+          if [ -z "$ARCHIVO" ]; then
+            echo "No se encontró requirements.txt en el repositorio."
+            exit 1
+          fi
+          RUTA=$(dirname "$ARCHIVO")
+          echo "Proyecto encontrado en: $RUTA"
+          echo "dir=$RUTA" >> "$GITHUB_OUTPUT"
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar la simulación
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: python src/main.py | tee salida.txt
+
+      - name: Publicar el reporte en el resumen del job
+        if: always()
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: |
+          echo '## Reporte de la simulación' >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat salida.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verificar que se generaron las siete figuras
+        working-directory: ${{ steps.loc.outputs.dir }}
+        run: |
+          n=$(ls figuras/*.png | wc -l)
+          echo "Figuras generadas: $n"
+          test "$n" -eq 7
+
+      - name: Subir las figuras como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: figuras
+          path: ${{ steps.loc.outputs.dir }}/figuras/*.png
+          if-no-files-found: error
+
+      - name: Subir el reporte como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte
+          path: ${{ steps.loc.outputs.dir }}/salida.txt
